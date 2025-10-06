@@ -123,6 +123,41 @@ export const recognizeImage = async (file: File): Promise<ScanResult | null> => 
 };
 
 /**
+ * Recognize product using AI vision (Smart Vision Scan)
+ * @param file Image file to process
+ * @param userId User ID for tracking
+ * @returns Detected product information or null if not recognized
+ */
+export const recognizeWithAIVision = async (file: File, userId: string): Promise<any> => {
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('user_id', userId);
+    
+    // Send to FastAPI backend for AI vision processing
+    const response = await fetch(`${API_URL}/detect-vision`, {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      throw new Error(`Error from server: ${response.statusText}`);
+    }
+
+    const result = await response.json();
+    
+    if (result.status !== "success") {
+      throw new Error(result.message || 'No product detected in the image');
+    }
+
+    return result;
+  } catch (error) {
+    console.error('Error recognizing with AI vision:', error);
+    throw error;
+  }
+};
+
+/**
  * Save scan data to Supabase
  * @param scanData Scan data to save
  * @returns Saved scan data or error
@@ -217,6 +252,39 @@ export const updateCartInSupabase = async (cartData: {
     return { data: result, error: null };
   } catch (error) {
     console.error('Error updating cart in Supabase:', error);
+    return { data: null, error };
+  }
+};
+
+/**
+ * Send user feedback for AI training
+ * @param feedbackData Feedback data to save
+ * @returns Saved feedback data or error
+ */
+export const sendUserFeedback = async (feedbackData: {
+  user_id: string;
+  image_url: string;
+  label: string;
+  user_feedback: boolean;
+}) => {
+  try {
+    const { data, error } = await supabase
+      .from('training_data')
+      .insert([{
+        user_id: feedbackData.user_id,
+        image_url: feedbackData.image_url,
+        label: feedbackData.label,
+        user_feedback: feedbackData.user_feedback,
+        added_at: new Date().toISOString()
+      }])
+      .select()
+      .single();
+
+    if (error) throw error;
+    
+    return { data, error: null };
+  } catch (error) {
+    console.error('Error saving feedback to Supabase:', error);
     return { data: null, error };
   }
 };

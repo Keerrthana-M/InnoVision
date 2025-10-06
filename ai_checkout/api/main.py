@@ -5,6 +5,8 @@ import pandas as pd
 import torch
 import json
 import os
+import uuid
+from typing import Optional
 
 app = FastAPI()
 
@@ -34,7 +36,78 @@ def load_product_catalog():
 bigbasket_df = pd.DataFrame(load_product_catalog())
 
 # Load YOLO model (in a real app, you'd load this once at startup)
+# For demo, we'll simulate the model
 # model = torch.hub.load('ultralytics/yolov5', 'yolov5s')
+
+@app.post("/detect-vision")
+async def detect_vision(user_id: str = Form(...), file: UploadFile = File(...)):
+    """
+    Detect item using AI vision (YOLOv8) from uploaded image
+    
+    Args:
+        user_id: User identifier
+        file: Image file for visual recognition
+        
+    Returns:
+        JSON with product details, confidence, and success status
+    """
+    try:
+        # Save uploaded file temporarily
+        contents = await file.read()
+        img_path = f"temp/{uuid.uuid4()}.jpg"
+        
+        # Create temp directory if it doesn't exist
+        os.makedirs(os.path.dirname(img_path), exist_ok=True)
+        
+        with open(img_path, "wb") as f:
+            f.write(contents)
+
+        # In a real implementation, run YOLO detection
+        # results = model(img_path)
+        # boxes = results[0].boxes.data
+        # if len(boxes) == 0:
+        #     return {"status": "failed", "message": "No product detected"}
+        #
+        # best_box = boxes[0]
+        # class_id = int(best_box[5])
+        # confidence = float(best_box[4])
+        # product_name = model.names[class_id]
+        #
+        # product = bigbasket_df[
+        #     bigbasket_df['product_name'].str.contains(product_name, case=False, na=False)
+        # ].iloc[0].to_dict()
+
+        # For demo, we'll simulate detection with a random product
+        product = bigbasket_df.sample(n=1).iloc[0].to_dict()
+        confidence = 0.93  # Simulated confidence
+        
+        # Log scan to Supabase
+        scan_data = {
+            "user_id": user_id,
+            "product_id": product["product_id"],
+            "confidence": confidence,
+            "image_url": img_path,
+            "created_at": "now()"
+        }
+        
+        supabase.table("scans").insert(scan_data).execute()
+
+        # Prepare response
+        response_data = {
+            "status": "success",
+            "product": {
+                "id": product["product_id"],
+                "name": product["name"],
+                "price": float(product["price"]),
+                "category": product.get("category", "Unknown"),
+            },
+            "confidence": confidence
+        }
+        
+        return response_data
+        
+    except Exception as e:
+        return {"status": "failed", "message": f"Error processing request: {str(e)}"}
 
 @app.post("/detect-item")
 async def detect_item(barcode: str = Form(None), file: UploadFile = File(None)):

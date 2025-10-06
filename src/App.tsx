@@ -1,7 +1,7 @@
 import { Route, Routes, NavLink, useLocation } from 'react-router-dom'
 import { Home, ScanLine, Gift, Settings as SettingsIcon, ShoppingCart, Video } from 'lucide-react'
 import Dashboard from './pages/Dashboard'
-import Scan from './pages/Scan'
+import SmartVisionScan from './pages/SmartVisionScan'
 import Basket from './pages/Basket'
 import VideoScan from './pages/VideoScan'
 import Rewards from './pages/Rewards'
@@ -27,7 +27,7 @@ export default function App() {
       <div className="flex-1 container-px py-4">
         <Routes>
           <Route path="/" element={<Dashboard />} />
-          <Route path="/scan" element={<Scan />} />
+          <Route path="/scan" element={<SmartVisionScan />} />
           <Route path="/basket" element={<Basket />} />
           <Route path="/verify" element={<VideoScan />} />
           <Route path="/rewards" element={<Rewards />} />
@@ -41,7 +41,7 @@ export default function App() {
         <nav className="sticky bottom-0 inset-x-0 border-t border-gray-200 dark:border-gray-800 bg-white/90 dark:bg-gray-950/80 backdrop-blur">
           <div className="container-px py-2 grid grid-cols-6">
             <TabLink to="/" label="Home" icon={Home} />
-            <TabLink to="/scan" label="Scan" icon={ScanLine} />
+            <TabLink to="/scan" label="Smart Scan" icon={ScanLine} />
             <TabLink to="/basket" label="Shop" icon={ShoppingCart} />
             <TabLink to="/verify" label="Video Scan" icon={Video} />
             <TabLink to="/rewards" label="Rewards" icon={Gift} />
