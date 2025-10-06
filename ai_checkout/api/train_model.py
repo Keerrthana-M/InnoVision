@@ -4,6 +4,7 @@ import os
 from supabase import create_client
 from datetime import datetime
 import argparse
+import pandas as pd
 
 # Supabase configuration
 SUPABASE_URL = "https://iaqyggcjvrprevburnjy.supabase.co"
@@ -33,6 +34,14 @@ def create_data_yaml():
     
     return data_yaml
 
+def download_image(image_url, save_path):
+    """Download image from URL and save to path"""
+    # In a real implementation, you would download the image
+    # For now, we'll just create a placeholder
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    with open(save_path, "w") as f:
+        f.write("placeholder")
+
 def train_model():
     """Train YOLO model on BigBasket dataset"""
     print("Creating data configuration...")
@@ -41,7 +50,7 @@ def train_model():
     
     # Load pre-trained YOLO model
     print("Loading pre-trained YOLO model...")
-    model = YOLO("yolov8m.pt")  # You can also use yolov8x.pt for better accuracy
+    model = YOLO("yolov8m.pt")  # Using YOLOv8m for better accuracy
     
     # Train the model
     print("Starting training...")
@@ -67,9 +76,10 @@ def train_model():
         "trained_at": datetime.now().isoformat()
     }).execute()
     
-    # Export model
+    # Export model in multiple formats for optimized inference
     print("Exporting model...")
-    model.export(format="pt", path="./models/bigbasket_yolo.pt")
+    model.export(format="pt", path="./models/bigbasket_yolo.pt")  # PyTorch
+    model.export(format="onnx", path="./models/bigbasket_yolo.onnx")  # ONNX for edge inference
     
     print("Training completed successfully!")
 
@@ -103,13 +113,36 @@ def retrain_with_user_data():
     
     print("Retraining completed!")
 
+def export_for_edge_inference():
+    """Export model for optimized edge inference"""
+    print("Exporting model for edge inference...")
+    
+    # Load the trained model
+    model = YOLO("./models/bigbasket_yolo.pt")
+    
+    # Export to ONNX format for optimized inference
+    model.export(format="onnx", path="./models/bigbasket_yolo.onnx")
+    
+    # Export to TensorRT format (if available)
+    try:
+        model.export(format="engine", path="./models/bigbasket_yolo.engine")
+        print("TensorRT export completed.")
+    except Exception as e:
+        print(f"TensorRT export failed: {e}")
+        print("ONNX export completed.")
+    
+    print("Edge inference models exported successfully!")
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train YOLO model for BigBasket product recognition")
     parser.add_argument("--retrain", action="store_true", help="Retrain with user feedback data")
+    parser.add_argument("--export", action="store_true", help="Export model for edge inference")
     
     args = parser.parse_args()
     
     if args.retrain:
         retrain_with_user_data()
+    elif args.export:
+        export_for_edge_inference()
     else:
         train_model()

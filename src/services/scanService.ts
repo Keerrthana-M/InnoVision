@@ -158,6 +158,98 @@ export const recognizeWithAIVision = async (file: File, userId: string): Promise
 };
 
 /**
+ * Fetch product catalog from backend
+ * @returns Array of products
+ */
+export const fetchProducts = async (): Promise<Product[]> => {
+  try {
+    const response = await fetch(`${API_URL}/get-products`);
+    
+    if (!response.ok) {
+      throw new Error(`Error from server: ${response.statusText}`);
+    }
+    
+    const result = await response.json();
+    
+    if (result.status !== "success") {
+      throw new Error(result.message || 'Failed to fetch products');
+    }
+    
+    return result.products;
+  } catch (error) {
+    console.error('Error fetching products:', error);
+    throw error;
+  }
+};
+
+/**
+ * Send user feedback for AI training
+ * @param feedbackData Feedback data to save
+ * @returns Saved feedback data or error
+ */
+export const sendUserFeedback = async (feedbackData: {
+  user_id: string;
+  image_url: string;
+  label: string;
+  user_feedback: boolean;
+}) => {
+  try {
+    const formData = new FormData();
+    formData.append('user_id', feedbackData.user_id);
+    formData.append('image_url', feedbackData.image_url);
+    formData.append('label', feedbackData.label);
+    formData.append('user_feedback', feedbackData.user_feedback.toString());
+    
+    const response = await fetch(`${API_URL}/update-feedback`, {
+      method: 'POST',
+      body: formData,
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Error from server: ${response.statusText}`);
+    }
+    
+    const result = await response.json();
+    
+    if (result.status !== "success") {
+      throw new Error(result.message || 'Failed to send feedback');
+    }
+    
+    return { data: result, error: null };
+  } catch (error) {
+    console.error('Error saving feedback:', error);
+    return { data: null, error };
+  }
+};
+
+/**
+ * Trigger model retraining
+ * @returns Training result
+ */
+export const triggerModelRetraining = async () => {
+  try {
+    const response = await fetch(`${API_URL}/train-model`, {
+      method: 'POST',
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Error from server: ${response.statusText}`);
+    }
+    
+    const result = await response.json();
+    
+    if (result.status !== "success") {
+      throw new Error(result.message || 'Failed to start retraining');
+    }
+    
+    return { data: result, error: null };
+  } catch (error) {
+    console.error('Error triggering model retraining:', error);
+    return { data: null, error };
+  }
+};
+
+/**
  * Save scan data to Supabase
  * @param scanData Scan data to save
  * @returns Saved scan data or error
@@ -252,39 +344,6 @@ export const updateCartInSupabase = async (cartData: {
     return { data: result, error: null };
   } catch (error) {
     console.error('Error updating cart in Supabase:', error);
-    return { data: null, error };
-  }
-};
-
-/**
- * Send user feedback for AI training
- * @param feedbackData Feedback data to save
- * @returns Saved feedback data or error
- */
-export const sendUserFeedback = async (feedbackData: {
-  user_id: string;
-  image_url: string;
-  label: string;
-  user_feedback: boolean;
-}) => {
-  try {
-    const { data, error } = await supabase
-      .from('training_data')
-      .insert([{
-        user_id: feedbackData.user_id,
-        image_url: feedbackData.image_url,
-        label: feedbackData.label,
-        user_feedback: feedbackData.user_feedback,
-        added_at: new Date().toISOString()
-      }])
-      .select()
-      .single();
-
-    if (error) throw error;
-    
-    return { data, error: null };
-  } catch (error) {
-    console.error('Error saving feedback to Supabase:', error);
     return { data: null, error };
   }
 };

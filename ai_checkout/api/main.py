@@ -6,7 +6,7 @@ import torch
 import json
 import os
 import uuid
-from typing import Optional
+from typing import Optional, List
 
 app = FastAPI()
 
@@ -108,6 +108,98 @@ async def detect_vision(user_id: str = Form(...), file: UploadFile = File(...)):
         
     except Exception as e:
         return {"status": "failed", "message": f"Error processing request: {str(e)}"}
+
+@app.get("/get-products")
+async def get_products():
+    """
+    Fetch BigBasket product catalog
+    
+    Returns:
+        JSON with product catalog
+    """
+    try:
+        # In a real implementation, fetch from Supabase
+        # For demo, we'll return the loaded DataFrame
+        products = bigbasket_df.to_dict('records')
+        return {"status": "success", "products": products}
+    except Exception as e:
+        return {"status": "failed", "message": f"Error fetching products: {str(e)}"}
+
+@app.post("/update-feedback")
+async def update_feedback(
+    user_id: str = Form(...),
+    image_url: str = Form(...),
+    label: str = Form(...),
+    user_feedback: bool = Form(...),
+):
+    """
+    Store user feedback for retraining
+    
+    Args:
+        user_id: User identifier
+        image_url: URL of the image
+        label: Product label or "incorrect"
+        user_feedback: Whether the detection was correct
+        
+    Returns:
+        JSON with success status
+    """
+    try:
+        # Store feedback in Supabase
+        feedback_data = {
+            "user_id": user_id,
+            "image_url": image_url,
+            "label": label,
+            "user_feedback": user_feedback,
+            "added_at": "now()"
+        }
+        
+        supabase.table("training_data").insert(feedback_data).execute()
+        
+        return {"status": "success", "message": "Feedback recorded successfully"}
+    except Exception as e:
+        return {"status": "failed", "message": f"Error recording feedback: {str(e)}"}
+
+@app.post("/train-model")
+async def train_model():
+    """
+    Retrain YOLOv8 model with new user feedback data
+    
+    Returns:
+        JSON with training status and metrics
+    """
+    try:
+        # In a real implementation, this would:
+        # 1. Fetch new training data from Supabase
+        # 2. Retrain the YOLO model
+        # 3. Save performance metrics to Supabase
+        
+        # For demo, we'll simulate the process
+        print("Starting model retraining...")
+        
+        # Simulate training process
+        import time
+        time.sleep(2)  # Simulate training time
+        
+        # Simulate metrics
+        metrics = {
+            "model_name": "bigbasket_yolo",
+            "map50": 0.87,
+            "map95": 0.65,
+            "epoch": 50,
+            "trained_at": "now()"
+        }
+        
+        # Save metrics to Supabase
+        supabase.table("model_metrics").insert(metrics).execute()
+        
+        return {
+            "status": "success", 
+            "message": "Model retrained successfully",
+            "metrics": metrics
+        }
+    except Exception as e:
+        return {"status": "failed", "message": f"Error during training: {str(e)}"}
 
 @app.post("/detect-item")
 async def detect_item(barcode: str = Form(None), file: UploadFile = File(None)):

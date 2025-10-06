@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Camera, CheckCircle, AlertCircle, ThumbsUp, ThumbsDown } from 'lucide-react'
+import { Camera, CheckCircle, AlertCircle, ThumbsUp, ThumbsDown, Play, Pause, Volume2 } from 'lucide-react'
 import { useAppStore } from '@/store/useAppStore'
 import ActionCard from '@/components/ActionCard'
 
@@ -15,11 +15,15 @@ type ScanResult = {
 export default function SmartVisionScan() {
   const [permissionError, setPermissionError] = useState<string | null>(null)
   const [isScanning, setIsScanning] = useState(false)
+  const [isAutoCaptureActive, setIsAutoCaptureActive] = useState(false)
   const [scanResult, setScanResult] = useState<ScanResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [lastImageURL, setLastImageURL] = useState<string | null>(null)
+  const [products, setProducts] = useState<any[]>([])
+  const [selectedProduct, setSelectedProduct] = useState<string>('')
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
+  const autoCaptureIntervalRef = useRef<NodeJS.Timeout | null>(null)
   
   const addItem = useAppStore(s => s.addItem)
   const addActivity = useAppStore(s => s.addActivity)
@@ -51,6 +55,24 @@ export default function SmartVisionScan() {
     }
     if (videoRef.current) {
       videoRef.current.srcObject = null
+    }
+  }
+
+  // Toggle auto capture
+  const toggleAutoCapture = () => {
+    if (isAutoCaptureActive) {
+      // Stop auto capture
+      if (autoCaptureIntervalRef.current) {
+        clearInterval(autoCaptureIntervalRef.current)
+        autoCaptureIntervalRef.current = null
+      }
+      setIsAutoCaptureActive(false)
+    } else {
+      // Start auto capture every 3 seconds
+      autoCaptureIntervalRef.current = setInterval(() => {
+        handleScan()
+      }, 3000)
+      setIsAutoCaptureActive(true)
     }
   }
 
@@ -110,14 +132,29 @@ export default function SmartVisionScan() {
         
         setScanResult(result)
         handleScanSuccess(result)
+        
+        // Voice feedback
+        speak(`Detected ${data.product.name} with ${(data.confidence * 100).toFixed(0)}% confidence`)
       } else {
         setError(data.message || "Product not recognized, please try again.")
+        speak("Product not recognized, please try again.")
       }
     } catch (err: any) {
       console.error('Scan error:', err)
       setError(err.message || "Failed to process image. Please try again.")
+      speak("Failed to process image. Please try again.")
     } finally {
       setIsScanning(false)
+    }
+  }
+
+  // Text-to-speech function
+  const speak = (text: string) => {
+    if ('speechSynthesis' in window) {
+      const utterance = new SpeechSynthesisUtterance(text)
+      utterance.rate = 1.0
+      utterance.pitch = 1.0
+      speechSynthesis.speak(utterance)
     }
   }
 
@@ -128,7 +165,7 @@ export default function SmartVisionScan() {
       id: result.product_name.toLowerCase().replace(/\s+/g, '-'),
       name: result.product_name,
       price: result.price,
-      category: result.category
+      size: result.category
     }, result.quantity)
     
     // Add activity
@@ -169,7 +206,7 @@ export default function SmartVisionScan() {
   }
 
   // Send feedback to backend for retraining
-  const sendFeedback = async (isCorrect: boolean) => {
+  const sendFeedback = async (isCorrect: boolean, correctedProduct?: string) => {
     if (!lastImageURL || !scanResult) return
     
     try {
@@ -177,19 +214,23 @@ export default function SmartVisionScan() {
       console.log('Sending feedback to Supabase:', {
         user_id: currentUser.id,
         image_url: lastImageURL,
-        label: isCorrect ? scanResult.product_name : "incorrect",
+        label: isCorrect ? scanResult.product_name : (correctedProduct || "incorrect"),
         user_feedback: isCorrect,
         added_at: new Date().toISOString()
       })
       
       // Show confirmation
-      alert(isCorrect ? '✅ Thanks for confirming! This helps improve our AI.' : '❌ Thanks for the feedback! We\'ll use this to improve our recognition.')
+      if (isCorrect) {
+        speak('Thanks for confirming! This helps improve our AI.')
+      } else {
+        speak('Thanks for the feedback! We\'ll use this to improve our recognition.')
+      }
       
       // Reset for next scan
       resetScan()
     } catch (err) {
       console.error('Feedback error:', err)
-      alert('Failed to send feedback. Please try again.')
+      speak('Failed to send feedback. Please try again.')
     }
   }
 
@@ -198,6 +239,7 @@ export default function SmartVisionScan() {
     setScanResult(null)
     setError(null)
     setIsScanning(false)
+    setSelectedProduct('')
     // Clean up object URL
     if (lastImageURL) {
       URL.revokeObjectURL(lastImageURL)
@@ -205,10 +247,20 @@ export default function SmartVisionScan() {
     }
   }
 
+  // Get confidence color
+  const getConfidenceColor = (confidence: number) => {
+    if (confidence >= 0.9) return 'text-emerald-500'
+    if (confidence >= 0.7) return 'text-yellow-500'
+    return 'text-red-500'
+  }
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
       stopCamera()
+      if (autoCaptureIntervalRef.current) {
+        clearInterval(autoCaptureIntervalRef.current)
+      }
       if (lastImageURL) {
         URL.revokeObjectURL(lastImageURL)
       }
@@ -241,25 +293,48 @@ export default function SmartVisionScan() {
                 </div>
               </div>
             )}
+            
+            {isAutoCaptureActive && (
+              <div className="absolute top-4 right-4 bg-red-500 text-white px-3 py-1 rounded-full text-sm font-bold animate-pulse">
+                AUTO
+              </div>
+            )}
           </div>
           
-          <div className="grid grid-cols-1 gap-3">
+          <div className="grid grid-cols-2 gap-3">
             <button 
               onClick={handleScan}
               disabled={isScanning}
-              className="btn btn-secondary"
+              className="btn btn-secondary flex items-center justify-center"
             >
               <Camera className="w-4 h-4 mr-2" />
               Scan Product
             </button>
             
             <button 
-              onClick={initCamera}
-              className="btn"
+              onClick={toggleAutoCapture}
+              className={`btn flex items-center justify-center ${isAutoCaptureActive ? 'bg-red-500 hover:bg-red-600' : 'bg-blue-500 hover:bg-blue-600'} text-white`}
             >
-              Reset Camera
+              {isAutoCaptureActive ? (
+                <>
+                  <Pause className="w-4 h-4 mr-2" />
+                  Stop Auto
+                </>
+              ) : (
+                <>
+                  <Play className="w-4 h-4 mr-2" />
+                  Auto Capture
+                </>
+              )}
             </button>
           </div>
+          
+          <button 
+            onClick={initCamera}
+            className="btn w-full"
+          >
+            Reset Camera
+          </button>
           
           {permissionError && (
             <div className="card card-p text-red-600 dark:text-red-400">
@@ -272,7 +347,7 @@ export default function SmartVisionScan() {
             <h3 className="font-bold mb-2">How it works</h3>
             <ul className="text-sm space-y-1 muted">
               <li>• Point your camera at a product</li>
-              <li>• Tap "Scan Product" to capture and analyze</li>
+              <li>• Tap "Scan Product" or enable "Auto Capture"</li>
               <li>• Our AI will identify the product</li>
               <li>• Confirm if the detection is correct to help improve accuracy</li>
             </ul>
@@ -289,8 +364,18 @@ export default function SmartVisionScan() {
               <span className="font-semibold">{scanResult.product_name}</span> - ₹{scanResult.price}
               {scanResult.category && <span className="muted"> ({scanResult.category})</span>}
             </p>
-            <p className="text-sm muted mt-1">
+            <p className={`text-sm mt-1 font-bold ${getConfidenceColor(scanResult.confidence)}`}>
               Confidence: {(scanResult.confidence * 100).toFixed(0)}%
+            </p>
+          </div>
+          
+          <div className="card card-p">
+            <h3 className="font-bold mb-2 flex items-center">
+              <Volume2 className="w-4 h-4 mr-2" />
+              Voice Feedback
+            </h3>
+            <p className="text-sm muted mb-3">
+              Audio feedback is enabled for better accessibility
             </p>
           </div>
           
@@ -316,6 +401,31 @@ export default function SmartVisionScan() {
                 No, Incorrect
               </button>
             </div>
+            
+            {!scanResult && (
+              <div className="mt-4">
+                <label className="block text-sm font-medium mb-2">Select Correct Product</label>
+                <select 
+                  value={selectedProduct}
+                  onChange={(e) => setSelectedProduct(e.target.value)}
+                  className="w-full p-2 border rounded"
+                >
+                  <option value="">Choose product...</option>
+                  {products.map((product) => (
+                    <option key={product.id} value={product.name}>
+                      {product.name}
+                    </option>
+                  ))}
+                </select>
+                <button 
+                  onClick={() => sendFeedback(false, selectedProduct)}
+                  className="btn btn-secondary mt-2 w-full"
+                  disabled={!selectedProduct}
+                >
+                  Submit Correction
+                </button>
+              </div>
+            )}
           </div>
           
           <button 

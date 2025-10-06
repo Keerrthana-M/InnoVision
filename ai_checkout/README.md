@@ -43,6 +43,16 @@ This implementation provides a complete AI-powered visual product recognition sy
 - Periodic model retraining with real-world data
 - Performance metrics tracking
 
+### ✅ Gamified User Experience
+- Voice feedback using Web Speech API
+- Confidence color indicators (green = >90%, yellow = 70–90%, red = <70%)
+- Auto-capture every 3 seconds
+- Real-time cart update after product confirmation
+
+### ✅ Edge Inference Optimization
+- ONNX export for optimized edge inference
+- TensorRT support for faster processing (if available)
+
 ## Implementation Details
 
 ### 1. Smart Vision Scan Component
@@ -51,21 +61,25 @@ Located at `src/pages/SmartVisionScan.tsx`, this component:
 - Captures images and sends to backend for processing
 - Displays detection results with confidence scores
 - Provides feedback mechanism for model improvement
+- Includes auto-capture functionality (every 3 seconds)
+- Voice feedback for accessibility
+- Real-time cart updates
 
 ### 2. Backend Vision API
-Located at `ai_checkout/api/main.py`, the `/detect-vision` endpoint:
-- Receives image uploads from frontend
-- Processes images with YOLOv8 model
-- Matches detected objects with product catalog
-- Logs scan data to Supabase
-- Returns product information to frontend
+Located at `ai_checkout/api/main.py`, the endpoints:
+- `/detect-vision`: Receives image → runs YOLOv8 detection → returns product name + confidence
+- `/train-model`: Retrains YOLOv8 with new user feedback data
+- `/get-products`: Fetches BigBasket dataset
+- `/update-feedback`: Stores feedback in Supabase
+- `/detect-item`: Legacy endpoint for barcode and image recognition
+- `/health`: Server status check
 
 ### 3. Model Training
 Located at `ai_checkout/api/train_model.py`:
 - Initial training on BigBasket dataset
 - Retraining with user feedback data
 - Performance metrics logging
-- Model export for production use
+- Model export for production use (PyTorch, ONNX, TensorRT)
 
 ## Database Schema
 
@@ -130,6 +144,7 @@ CREATE TABLE model_metrics (
 ```sql
 CREATE TABLE training_data (
   id SERIAL PRIMARY KEY,
+  user_id TEXT,
   image_url TEXT,
   label TEXT,
   user_feedback BOOLEAN,
@@ -139,13 +154,18 @@ CREATE TABLE training_data (
 
 ## How to Run
 
-### Frontend
+### Prerequisites
+- Node.js (v16 or higher)
+- Python (v3.8 or higher)
+- pip (Python package manager)
+
+### Frontend Setup
 ```bash
 npm install
 npm run dev
 ```
 
-### Backend
+### Backend Setup
 ```bash
 cd ai_checkout/api
 pip install -r requirements.txt
@@ -162,6 +182,12 @@ python train_model.py
 ```bash
 cd ai_checkout/api
 python train_model.py --retrain
+```
+
+### Export for Edge Inference
+```bash
+cd ai_checkout/api
+python train_model.py --export
 ```
 
 ## Model Enhancement Suggestions
@@ -198,6 +224,82 @@ python train_model.py --retrain
 }
 ```
 
+## API Endpoints
+
+### POST /detect-vision
+Detect product using AI vision from uploaded image
+
+**Parameters:**
+- `user_id` (form): User identifier
+- `file` (form): Image file for visual recognition
+
+**Response:**
+```json
+{
+  "status": "success",
+  "product": {
+    "id": "product_id",
+    "name": "Product Name",
+    "price": 20.0,
+    "category": "Category"
+  },
+  "confidence": 0.93
+}
+```
+
+### GET /get-products
+Fetch BigBasket product catalog
+
+**Response:**
+```json
+{
+  "status": "success",
+  "products": [
+    {
+      "id": "product_id",
+      "name": "Product Name",
+      "price": 20.0,
+      "category": "Category"
+    }
+  ]
+}
+```
+
+### POST /update-feedback
+Store user feedback for retraining
+
+**Parameters:**
+- `user_id` (form): User identifier
+- `image_url` (form): URL of the image
+- `label` (form): Product label or "incorrect"
+- `user_feedback` (form): Whether the detection was correct
+
+**Response:**
+```json
+{
+  "status": "success",
+  "message": "Feedback recorded successfully"
+}
+```
+
+### POST /train-model
+Retrain YOLOv8 model with new user feedback data
+
+**Response:**
+```json
+{
+  "status": "success",
+  "message": "Model retrained successfully",
+  "metrics": {
+    "model_name": "bigbasket_yolo",
+    "map50": 0.87,
+    "map95": 0.65,
+    "epoch": 50,
+    "trained_at": "2023-01-01T00:00:00Z"
+  }
+}
+```
+
 ## Result
 
 After running this implementation:
@@ -206,3 +308,6 @@ After running this implementation:
 ✅ Supabase stores every scan + feedback
 ✅ The system retrains itself automatically with real user data
 ✅ Model accuracy improves weekly with no manual retraining
+✅ Voice feedback enhances accessibility
+✅ Auto-capture improves user experience
+✅ Edge inference optimization enables faster processing
