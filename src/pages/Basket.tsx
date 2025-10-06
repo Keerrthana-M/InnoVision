@@ -21,9 +21,9 @@ export default function Basket() {
 
       <div className="card card-p">
         <div className="section-title mb-2">Summary</div>
-        <div className="flex justify-between"><span>Subtotal</span><span>${subtotal.toFixed(2)}</span></div>
-        <div className="flex justify-between text-emerald-600"><span>Discounts</span><span>-${discounts.toFixed(2)}</span></div>
-        <div className="flex justify-between font-semibold mt-2"><span>Total</span><span>${finalTotal.toFixed(2)}</span></div>
+        <div className="flex justify-between"><span>Subtotal</span><span>₹{subtotal.toFixed(2)}</span></div>
+        <div className="flex justify-between text-emerald-600"><span>Discounts</span><span>-₹{discounts.toFixed(2)}</span></div>
+        <div className="flex justify-between font-semibold mt-2"><span>Total</span><span>₹{finalTotal.toFixed(2)}</span></div>
         <div className="muted mt-1">Est. volume: {(basket.reduce((s, i) => s + i.qty * 0.7, 0)).toFixed(1)} L</div>
         <button onClick={() => navigate('/payment')} className="mt-4 w-full px-4 py-2 rounded-lg bg-brand-600 text-white">Checkout</button>
       </div>
