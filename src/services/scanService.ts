@@ -3,10 +3,10 @@ import { createClient } from '@supabase/supabase-js'
 // Configuration
 const API_URL = import.meta.env.VITE_REACT_APP_API_URL || 'http://localhost:8000';
 const SUPABASE_URL = import.meta.env.VITE_REACT_APP_SUPABASE_URL || 'https://iaqyggcjvrprevburnjy.supabase.co';
-const SUPABASE_SERVICE_ROLE_KEY = import.meta.env.VITE_REACT_APP_SUPABASE_SERVICE_ROLE_KEY || 'your-supabase-service-role-key';
+const SUPABASE_ANON_KEY = import.meta.env.VITE_REACT_APP_SUPABASE_ANON_KEY || '';
 
-// Initialize Supabase client
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+// Initialize Supabase client (anon key only)
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // Interface for product data
 interface Product {
@@ -79,47 +79,8 @@ export const lookupByBarcode = async (barcode: string): Promise<ScanResult | nul
  * @param file Image file to process
  * @returns Detected product information or null if not recognized
  */
-export const recognizeImage = async (file: File): Promise<ScanResult | null> => {
-  try {
-    const formData = new FormData();
-    formData.append('file', file);
-    
-    // Send to FastAPI backend for processing
-    const response = await fetch(`${API_URL}/detect-item`, {
-      method: 'POST',
-      body: formData,
-    });
-
-    if (!response.ok) {
-      throw new Error(`Error from server: ${response.statusText}`);
-    }
-
-    const result = await response.json();
-    
-    if (!result.product) {
-      throw new Error('No product detected in the image');
-    }
-
-    return {
-      product: {
-        id: result.product.id,
-        name: result.product.name,
-        brand: result.product.brand,
-        category: result.product.category,
-        price: result.product.price,
-        size: result.product.size,
-        barcode: result.product.barcode,
-        sku: result.product.sku,
-        image_url: result.product.image_url,
-        description: result.product.description,
-      },
-      confidence: result.confidence || 0.85,
-      timestamp: result.timestamp || new Date().toISOString(),
-    };
-  } catch (error) {
-    console.error('Error recognizing image:', error);
-    throw error;
-  }
+export const recognizeImage = async (_file: File): Promise<ScanResult | null> => {
+  throw new Error('Image recognition is disabled during ML reset.');
 };
 
 /**
@@ -128,33 +89,8 @@ export const recognizeImage = async (file: File): Promise<ScanResult | null> => 
  * @param userId User ID for tracking
  * @returns Detected product information or null if not recognized
  */
-export const recognizeWithAIVision = async (file: File, userId: string): Promise<any> => {
-  try {
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('user_id', userId);
-    
-    // Send to FastAPI backend for AI vision processing
-    const response = await fetch(`${API_URL}/detect-vision`, {
-      method: 'POST',
-      body: formData,
-    });
-
-    if (!response.ok) {
-      throw new Error(`Error from server: ${response.statusText}`);
-    }
-
-    const result = await response.json();
-    
-    if (result.status !== "success") {
-      throw new Error(result.message || 'No product detected in the image');
-    }
-
-    return result;
-  } catch (error) {
-    console.error('Error recognizing with AI vision:', error);
-    throw error;
-  }
+export const recognizeWithAIVision = async (_file: File, _userId: string): Promise<any> => {
+  throw new Error('AI vision detection is disabled during ML reset.');
 };
 
 /**
@@ -187,39 +123,9 @@ export const fetchProducts = async (): Promise<Product[]> => {
  * @param feedbackData Feedback data to save
  * @returns Saved feedback data or error
  */
-export const sendUserFeedback = async (feedbackData: {
-  user_id: string;
-  image_url: string;
-  label: string;
-  user_feedback: boolean;
-}) => {
-  try {
-    const formData = new FormData();
-    formData.append('user_id', feedbackData.user_id);
-    formData.append('image_url', feedbackData.image_url);
-    formData.append('label', feedbackData.label);
-    formData.append('user_feedback', feedbackData.user_feedback.toString());
-    
-    const response = await fetch(`${API_URL}/update-feedback`, {
-      method: 'POST',
-      body: formData,
-    });
-    
-    if (!response.ok) {
-      throw new Error(`Error from server: ${response.statusText}`);
-    }
-    
-    const result = await response.json();
-    
-    if (result.status !== "success") {
-      throw new Error(result.message || 'Failed to send feedback');
-    }
-    
-    return { data: result, error: null };
-  } catch (error) {
-    console.error('Error saving feedback:', error);
-    return { data: null, error };
-  }
+export const sendUserFeedback = async (): Promise<{ data: null; error: Error }> => {
+  const error = new Error('Feedback endpoint is disabled during ML reset.');
+  return { data: null, error };
 };
 
 /**
@@ -227,26 +133,8 @@ export const sendUserFeedback = async (feedbackData: {
  * @returns Training result
  */
 export const triggerModelRetraining = async () => {
-  try {
-    const response = await fetch(`${API_URL}/train-model`, {
-      method: 'POST',
-    });
-    
-    if (!response.ok) {
-      throw new Error(`Error from server: ${response.statusText}`);
-    }
-    
-    const result = await response.json();
-    
-    if (result.status !== "success") {
-      throw new Error(result.message || 'Failed to start retraining');
-    }
-    
-    return { data: result, error: null };
-  } catch (error) {
-    console.error('Error triggering model retraining:', error);
-    return { data: null, error };
-  }
+  const error = new Error('Model retraining is disabled during ML reset.');
+  return { data: null, error };
 };
 
 /**

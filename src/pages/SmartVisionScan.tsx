@@ -1,26 +1,26 @@
 import { useState, useRef, useEffect } from 'react'
-import { Camera, CheckCircle, AlertCircle, ThumbsUp, ThumbsDown, Play, Pause, Volume2 } from 'lucide-react'
+import { Camera, CheckCircle, AlertCircle, ThumbsUp, ThumbsDown, Play, Pause, Volume2, Loader, X, ShoppingCart } from 'lucide-react'
 import { useAppStore } from '@/store/useAppStore'
-import ActionCard from '@/components/ActionCard'
 
-type ScanResult = {
-  product_name: string
-  price: number
-  quantity: number
-  confidence: number
-  category?: string
-  product_id?: string
+type DetectionResult = {
+  status: string
+  product_name?: string
+  price?: number
+  confidence?: number
+  message?: string
 }
 
 export default function SmartVisionScan() {
   const [permissionError, setPermissionError] = useState<string | null>(null)
   const [isScanning, setIsScanning] = useState(false)
   const [isAutoCaptureActive, setIsAutoCaptureActive] = useState(false)
-  const [scanResult, setScanResult] = useState<ScanResult | null>(null)
+  const [detectionResult, setDetectionResult] = useState<DetectionResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [lastImageURL, setLastImageURL] = useState<string | null>(null)
-  const [products, setProducts] = useState<any[]>([])
-  const [selectedProduct, setSelectedProduct] = useState<string>('')
+  const [loading, setLoading] = useState(false)
+  const [cameraActive, setCameraActive] = useState(true)
+  const [newLabel, setNewLabel] = useState('')
+  const [showAddToTraining, setShowAddToTraining] = useState(false)
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const autoCaptureIntervalRef = useRef<NodeJS.Timeout | null>(null)
@@ -29,20 +29,52 @@ export default function SmartVisionScan() {
   const addActivity = useAppStore(s => s.addActivity)
   const currentUser = { id: 'demo-user' } // In a real app, get from auth context
 
+  // API base URL
+  const API_BASE_URL = import.meta.env.VITE_REACT_APP_API_URL || 'http://localhost:8000'
+
+  // Capture image from live video feed (resized to 640x480)
+  const captureImage = async (): Promise<string> => {
+    try {
+      const video = videoRef.current;
+      if (!video) throw new Error("Video reference not found");
+
+      // Ensure video frame is ready
+      if (video.readyState < 2) throw new Error("Video not ready");
+
+      // Create canvas and resize to 640x480
+      const canvas = document.createElement("canvas");
+      canvas.width = 640;
+      canvas.height = 480;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("Canvas context unavailable");
+
+      // Draw resized image
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      return canvas.toDataURL("image/jpeg");
+    } catch (err) {
+      console.error("Image capture error:", err);
+      throw new Error("Failed to capture image");
+    }
+  };
+
   // Initialize camera for visual scanning
   const initCamera = async () => {
     try {
+      // Stop any existing stream
+      stopCamera()
+      
       const stream = await navigator.mediaDevices.getUserMedia({ 
         video: { facingMode: 'environment' } 
       })
       streamRef.current = stream
       if (videoRef.current) {
         videoRef.current.srcObject = stream
-        await videoRef.current.play()
       }
+      setCameraActive(true)
       setPermissionError(null)
     } catch (e: any) {
       setPermissionError(e?.message || 'Camera permission denied')
+      setCameraActive(false)
       console.error('Camera init failed', e)
     }
   }
@@ -56,6 +88,7 @@ export default function SmartVisionScan() {
     if (videoRef.current) {
       videoRef.current.srcObject = null
     }
+    setCameraActive(false)
   }
 
   // Toggle auto capture
@@ -71,81 +104,59 @@ export default function SmartVisionScan() {
       // Start auto capture every 3 seconds
       autoCaptureIntervalRef.current = setInterval(() => {
         handleScan()
-      }, 3000)
       setIsAutoCaptureActive(true)
     }
   }
 
   // Handle scan action
   const handleScan = async () => {
-    if (!videoRef.current) return
-    
-    setIsScanning(true)
-    setError(null)
-    
+    // Detection is disabled during ML reset; keep UI responsive
     try {
-      const video = videoRef.current
-      const canvas = document.createElement("canvas")
-      canvas.width = video.videoWidth
-      canvas.height = video.videoHeight
-      const ctx = canvas.getContext("2d")
-      ctx?.drawImage(video, 0, 0, canvas.width, canvas.height)
-
-      const blob = await new Promise<Blob | null>((resolve) => 
-        canvas.toBlob(resolve, "image/jpeg")
-      )
-      
-      if (!blob) {
-        throw new Error("Failed to capture image")
-      }
-      
-      const formData = new FormData()
-      formData.append("file", blob)
-      formData.append("user_id", currentUser.id)
-
-      // In a real implementation, this would point to your FastAPI backend
-      const API_URL = import.meta.env.VITE_REACT_APP_API_URL || 'http://localhost:8000'
-      const res = await fetch(`${API_URL}/detect-vision`, {
-        method: "POST",
-        body: formData,
-      })
-
-      if (!res.ok) {
-        throw new Error(`Server error: ${res.status}`)
-      }
-
-      const data = await res.json()
-      
-      if (data.status === "success") {
-        // Create a temporary URL for the captured image
-        const imageURL = URL.createObjectURL(blob)
-        setLastImageURL(imageURL)
-        
-        const result = {
-          product_name: data.product.name,
-          price: data.product.price,
-          quantity: 1,
-          confidence: data.confidence,
-          category: data.product.category,
-          product_id: data.product.id || data.product.name.toLowerCase().replace(/\s+/g, '-')
-        }
-        
-        setScanResult(result)
-        handleScanSuccess(result)
-        
-        // Voice feedback
-        speak(`Detected ${data.product.name} with ${(data.confidence * 100).toFixed(0)}% confidence`)
-      } else {
-        setError(data.message || "Product not recognized, please try again.")
-        speak("Product not recognized, please try again.")
-      }
-    } catch (err: any) {
-      console.error('Scan error:', err)
-      setError(err.message || "Failed to process image. Please try again.")
-      speak("Failed to process image. Please try again.")
+      setError(null)
+      setLoading(true)
+      setDetectionResult(null)
+      await captureImage() // still capture for UX validation
+      const msg = 'AI vision detection is temporarily disabled during reset.'
+      setError(msg)
+      speak(msg)
+    } catch (error: any) {
+      console.error('Scan error:', error)
+      setError(error.message || 'Failed to capture image')
     } finally {
-      setIsScanning(false)
+      setLoading(false)
     }
+  }
+
+  // Add new item to training
+  const addToTraining = async () => {
+    const msg = 'Training endpoint is disabled during ML reset.'
+    setError(msg)
+    speak(msg)
+  }
+
+  // Confirm and add to cart
+  const confirmAddToCart = () => {
+    if (!detectionResult || detectionResult.status !== "success" || !detectionResult.product_name || detectionResult.price === undefined) {
+      return
+{{ ... }}
+    }
+    
+    // Add to basket
+    addItem({
+      id: detectionResult.product_name.toLowerCase().replace(/\s+/g, '-'),
+      name: detectionResult.product_name,
+      price: detectionResult.price,
+      size: '' // In a real implementation, you might get this from the API
+    }, 1)
+    
+    // Add activity
+    addActivity(`Added ${detectionResult.product_name} to basket`)
+    
+    // Voice feedback
+    speak(`${detectionResult.product_name} added to cart`)
+    
+    // Reset for next scan
+    resetScan()
   }
 
   // Text-to-speech function
@@ -158,91 +169,16 @@ export default function SmartVisionScan() {
     }
   }
 
-  // Handle successful scan
-  const handleScanSuccess = (result: ScanResult) => {
-    // Add to basket
-    addItem({
-      id: result.product_name.toLowerCase().replace(/\s+/g, '-'),
-      name: result.product_name,
-      price: result.price,
-      size: result.category
-    }, result.quantity)
-    
-    // Add activity
-    addActivity(`Added ${result.product_name} to basket`)
-    
-    // In a real implementation, we would send to backend:
-    sendToBackend(result)
-  }
-
-  // Send data to backend (real implementation)
-  const sendToBackend = async (result: ScanResult) => {
-    try {
-      // Generate a fallback product ID if not provided
-      const productId = result.product_id || result.product_name?.toLowerCase().replace(/\s+/g, '-') || 'unknown-product'
-      
-      // In a real implementation, save to Supabase
-      console.log('Saving scan data to Supabase:', {
-        user_id: currentUser.id,
-        product_id: productId,
-        confidence: result.confidence,
-        qty: result.quantity,
-        created_at: new Date().toISOString()
-      })
-      
-      // Update cart in Supabase
-      console.log('Updating cart in Supabase:', {
-        user_id: currentUser.id,
-        product_id: productId,
-        qty: result.quantity,
-        total_price: result.price * result.quantity
-      })
-      
-      setError(null)
-    } catch (err) {
-      setError('Failed to save scan data. Please try again.')
-      console.error('Supabase error:', err)
-    }
-  }
-
-  // Send feedback to backend for retraining
-  const sendFeedback = async (isCorrect: boolean, correctedProduct?: string) => {
-    if (!lastImageURL || !scanResult) return
-    
-    try {
-      // In a real implementation, send feedback to Supabase
-      console.log('Sending feedback to Supabase:', {
-        user_id: currentUser.id,
-        image_url: lastImageURL,
-        label: isCorrect ? scanResult.product_name : (correctedProduct || "incorrect"),
-        user_feedback: isCorrect,
-        added_at: new Date().toISOString()
-      })
-      
-      // Show confirmation
-      if (isCorrect) {
-        speak('Thanks for confirming! This helps improve our AI.')
-      } else {
-        speak('Thanks for the feedback! We\'ll use this to improve our recognition.')
-      }
-      
-      // Reset for next scan
-      resetScan()
-    } catch (err) {
-      console.error('Feedback error:', err)
-      speak('Failed to send feedback. Please try again.')
-    }
-  }
-
   // Reset scan state
   const resetScan = () => {
-    setScanResult(null)
+    setDetectionResult(null)
     setError(null)
     setIsScanning(false)
-    setSelectedProduct('')
+    setNewLabel('')
+    setShowAddToTraining(false)
     // Clean up object URL
     if (lastImageURL) {
-      URL.revokeObjectURL(lastImageURL)
+      // For data URLs, no need to revoke
       setLastImageURL(null)
     }
   }
@@ -254,18 +190,36 @@ export default function SmartVisionScan() {
     return 'text-red-500'
   }
 
-  // Cleanup on unmount
+  // Get confidence label
+  const getConfidenceLabel = (confidence: number) => {
+    if (confidence >= 0.9) return 'High'
+    if (confidence >= 0.7) return 'Medium'
+    return 'Low'
+  }
+
+  // Auto capture effect
   useEffect(() => {
+    if (isAutoCaptureActive) {
+      const interval = setInterval(() => handleScan(), 3000);
+      return () => clearInterval(interval);
+    }
+  }, [isAutoCaptureActive]);
+
+  // Start camera on mount
+  useEffect(() => {
+    initCamera()
+    
+    // Cleanup on unmount
     return () => {
       stopCamera()
       if (autoCaptureIntervalRef.current) {
         clearInterval(autoCaptureIntervalRef.current)
       }
       if (lastImageURL) {
-        URL.revokeObjectURL(lastImageURL)
+        // For data URLs, no need to revoke
       }
     }
-  }, [lastImageURL])
+  }, [])
 
   return (
     <div className="space-y-6">
@@ -274,168 +228,153 @@ export default function SmartVisionScan() {
         <p className="muted">Point your camera at a product to automatically recognize it</p>
       </div>
 
-      {!scanResult && (
-        <div className="space-y-4">
-          <div className="card overflow-hidden relative">
-            <video 
-              ref={videoRef} 
-              className="w-full max-h-[60vh] bg-black" 
-              playsInline 
-              muted 
-            />
-            <div className="absolute inset-0 border-4 border-white/20 m-10 rounded-2xl pointer-events-none" />
-            
-            {isScanning && (
-              <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                <div className="text-white text-center">
-                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-2"></div>
-                  <p>Analyzing image...</p>
-                </div>
-              </div>
-            )}
-            
-            {isAutoCaptureActive && (
-              <div className="absolute top-4 right-4 bg-red-500 text-white px-3 py-1 rounded-full text-sm font-bold animate-pulse">
-                AUTO
-              </div>
-            )}
-          </div>
+      {/* Camera View */}
+      <div className="space-y-4">
+        <div className="card overflow-hidden relative">
+          <video 
+            ref={videoRef} 
+            className="w-full max-h-[60vh] bg-black" 
+            playsInline 
+            muted 
+            autoPlay
+          />
+          <div className="absolute inset-0 border-4 border-white/20 m-10 rounded-2xl pointer-events-none" />
           
-          <div className="grid grid-cols-2 gap-3">
+          {loading && (
+            <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+              <div className="text-white text-center">
+                <Loader className="w-12 h-12 animate-spin mx-auto mb-2" />
+                <p>Detecting product...</p>
+              </div>
+            </div>
+          )}
+          
+          {isAutoCaptureActive && (
+            <div className="absolute top-4 right-4 bg-red-500 text-white px-3 py-1 rounded-full text-sm font-bold animate-pulse">
+              AUTO
+            </div>
+          )}
+        </div>
+        
+        {/* Detection Result Display */}
+        {detectionResult?.status === 'success' && detectionResult.product_name && detectionResult.price !== undefined && (
+          <div className="card card-p text-center py-4">
+            <h3 className="text-xl font-bold">{detectionResult.product_name}</h3>
+            <p className="text-lg font-semibold mt-1">₹{detectionResult.price.toFixed(2)}</p>
+            <div className="mt-2">
+              <span className={`text-sm font-bold ${getConfidenceColor(detectionResult.confidence || 0)}`}>
+                Confidence: {((detectionResult.confidence || 0) * 100).toFixed(1)}% ({getConfidenceLabel(detectionResult.confidence || 0)})
+              </span>
+            </div>
             <button 
-              onClick={handleScan}
-              disabled={isScanning}
-              className="btn btn-secondary flex items-center justify-center"
+              onClick={confirmAddToCart}
+              className="btn bg-emerald-500 hover:bg-emerald-600 text-white mt-4 flex items-center justify-center mx-auto"
             >
-              <Camera className="w-4 h-4 mr-2" />
-              Scan Product
-            </button>
-            
-            <button 
-              onClick={toggleAutoCapture}
-              className={`btn flex items-center justify-center ${isAutoCaptureActive ? 'bg-red-500 hover:bg-red-600' : 'bg-blue-500 hover:bg-blue-600'} text-white`}
-            >
-              {isAutoCaptureActive ? (
-                <>
-                  <Pause className="w-4 h-4 mr-2" />
-                  Stop Auto
-                </>
-              ) : (
-                <>
-                  <Play className="w-4 h-4 mr-2" />
-                  Auto Capture
-                </>
-              )}
+              <ShoppingCart className="w-4 h-4 mr-2" />
+              Add to Cart
             </button>
           </div>
+        )}
+        
+        {/* Unknown Item Display */}
+        {detectionResult?.status === 'unknown_item' && showAddToTraining && (
+          <div className="card card-p text-center py-4">
+            <AlertCircle className="w-12 h-12 text-yellow-500 mx-auto mb-3" />
+            <h3 className="text-xl font-bold text-yellow-600 dark:text-yellow-400">Unknown Item</h3>
+            <p className="mt-2">
+              This item is not in our database. Help us learn by adding it to training.
+            </p>
+            <div className="mt-4">
+              <input
+                type="text"
+                value={newLabel}
+                onChange={(e) => setNewLabel(e.target.value)}
+                placeholder="Enter product name (e.g., Lays Chips)"
+                className="w-full p-2 border rounded mb-3"
+              />
+              <button 
+                onClick={addToTraining}
+                disabled={loading || !newLabel}
+                className="btn bg-blue-500 hover:bg-blue-600 text-white w-full"
+              >
+                {loading ? 'Adding...' : 'Add to Training'}
+              </button>
+            </div>
+            <button 
+              onClick={resetScan}
+              className="btn btn-secondary mt-3 w-full"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+        
+        {/* Control Buttons */}
+        <div className="grid grid-cols-2 gap-3">
+          <button 
+            onClick={handleScan}
+            disabled={loading || !cameraActive}
+            className="btn btn-secondary flex items-center justify-center"
+          >
+            <Camera className="w-4 h-4 mr-2" />
+            Scan Product
+          </button>
           
           <button 
+            onClick={toggleAutoCapture}
+            disabled={loading || !cameraActive}
+            className={`btn flex items-center justify-center ${isAutoCaptureActive ? 'bg-red-500 hover:bg-red-600' : 'bg-blue-500 hover:bg-blue-600'} text-white`}
+          >
+            {isAutoCaptureActive ? (
+              <>
+                <Pause className="w-4 h-4 mr-2" />
+                Stop Auto
+              </>
+            ) : (
+              <>
+                <Play className="w-4 h-4 mr-2" />
+                Auto Capture
+              </>
+            )}
+          </button>
+        </div>
+        
+        <div className="grid grid-cols-2 gap-3">
+          <button 
             onClick={initCamera}
+            disabled={loading}
             className="btn w-full"
           >
             Reset Camera
           </button>
           
-          {permissionError && (
-            <div className="card card-p text-red-600 dark:text-red-400">
-              <AlertCircle className="w-5 h-5 inline mr-2" />
-              {permissionError}
-            </div>
-          )}
-          
-          <div className="card card-p">
-            <h3 className="font-bold mb-2">How it works</h3>
-            <ul className="text-sm space-y-1 muted">
-              <li>• Point your camera at a product</li>
-              <li>• Tap "Scan Product" or enable "Auto Capture"</li>
-              <li>• Our AI will identify the product</li>
-              <li>• Confirm if the detection is correct to help improve accuracy</li>
-            </ul>
-          </div>
-        </div>
-      )}
-
-      {scanResult && (
-        <div className="space-y-4">
-          <div className="card card-p text-center py-6">
-            <CheckCircle className="w-12 h-12 text-emerald-500 mx-auto mb-3" />
-            <h2 className="text-xl font-bold text-emerald-600 dark:text-emerald-400">Item Detected!</h2>
-            <p className="mt-2">
-              <span className="font-semibold">{scanResult.product_name}</span> - ₹{scanResult.price}
-              {scanResult.category && <span className="muted"> ({scanResult.category})</span>}
-            </p>
-            <p className={`text-sm mt-1 font-bold ${getConfidenceColor(scanResult.confidence)}`}>
-              Confidence: {(scanResult.confidence * 100).toFixed(0)}%
-            </p>
-          </div>
-          
-          <div className="card card-p">
-            <h3 className="font-bold mb-2 flex items-center">
-              <Volume2 className="w-4 h-4 mr-2" />
-              Voice Feedback
-            </h3>
-            <p className="text-sm muted mb-3">
-              Audio feedback is enabled for better accessibility
-            </p>
-          </div>
-          
-          <div className="card card-p">
-            <h3 className="font-bold mb-2">Is this correct?</h3>
-            <p className="text-sm muted mb-3">
-              Help improve our AI by confirming if this detection is accurate
-            </p>
-            <div className="grid grid-cols-2 gap-3">
-              <button 
-                onClick={() => sendFeedback(true)}
-                className="btn bg-emerald-500 hover:bg-emerald-600 text-white flex items-center justify-center"
-              >
-                <ThumbsUp className="w-4 h-4 mr-2" />
-                Yes, Correct
-              </button>
-              
-              <button 
-                onClick={() => sendFeedback(false)}
-                className="btn bg-rose-500 hover:bg-rose-600 text-white flex items-center justify-center"
-              >
-                <ThumbsDown className="w-4 h-4 mr-2" />
-                No, Incorrect
-              </button>
-            </div>
-            
-            {!scanResult && (
-              <div className="mt-4">
-                <label className="block text-sm font-medium mb-2">Select Correct Product</label>
-                <select 
-                  value={selectedProduct}
-                  onChange={(e) => setSelectedProduct(e.target.value)}
-                  className="w-full p-2 border rounded"
-                >
-                  <option value="">Choose product...</option>
-                  {products.map((product) => (
-                    <option key={product.id} value={product.name}>
-                      {product.name}
-                    </option>
-                  ))}
-                </select>
-                <button 
-                  onClick={() => sendFeedback(false, selectedProduct)}
-                  className="btn btn-secondary mt-2 w-full"
-                  disabled={!selectedProduct}
-                >
-                  Submit Correction
-                </button>
-              </div>
-            )}
-          </div>
-          
           <button 
-            onClick={resetScan}
-            className="btn w-full"
+            onClick={stopCamera}
+            disabled={loading || !cameraActive}
+            className="btn bg-red-500 hover:bg-red-600 text-white w-full flex items-center justify-center"
           >
-            Scan Another Item
+            <X className="w-4 h-4 mr-2" />
+            Close Camera
           </button>
         </div>
-      )}
+        
+        {permissionError && (
+          <div className="card card-p text-red-600 dark:text-red-400">
+            <AlertCircle className="w-5 h-5 inline mr-2" />
+            {permissionError}
+          </div>
+        )}
+        
+        <div className="card card-p">
+          <h3 className="font-bold mb-2">How it works</h3>
+          <ul className="text-sm space-y-1 muted">
+            <li>• Point your camera at a product</li>
+            <li>• Tap "Scan Product" or enable "Auto Capture"</li>
+            <li>• Our AI will identify the product</li>
+            <li>• Confirm if the detection is correct to help improve accuracy</li>
+          </ul>
+        </div>
+      </div>
 
       {error && (
         <div className="card card-p text-red-600 dark:text-red-400">
